@@ -1,0 +1,23 @@
+# Python 3.11
+# --- runtime ---
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.5.2
+pyarrow==17.0.0
+polars==1.7.1
+requests==2.32.3
+pydantic==2.9.2
+typer==0.12.5
+rich==13.7.1
+matplotlib==3.9.2
+plotly==5.24.1
+jupyterlab==4.2.5
+
+# --- dev (valfritt att installera) ---
+ruff==0.6.9
+black==24.10.0
+mypy==1.11.2
+pytest==8.3.3
+pytest-cov==5.0.0
+pre-commit==3.8.0
+ipykernel==6.29.5

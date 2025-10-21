@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "svk-power-ml"
+version = "0.1.0"
+description = "End-to-end data science/ML pipeline on SVK electricity statistics"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Team", email = "team@example.com" }]
+license = { text = "MIT" }
+
+dependencies = [
+  "pandas>=2.2",
+  "numpy>=1.26",
+  "scikit-learn>=1.5",
+  "pyarrow>=17.0",
+  "polars>=1.7",
+  "requests>=2.32",
+  "pydantic>=2.8",
+  "typer>=0.12",
+  "rich>=13.7",
+  "matplotlib>=3.9",
+  "plotly>=5.24",
+  "jupyterlab>=4.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.6",
+  "black>=24.8",
+  "mypy>=1.11",
+  "pytest>=8.3",
+  "pytest-cov>=5.0",
+  "pre-commit>=3.8",
+  "ipykernel>=6.29",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+strict = false
+

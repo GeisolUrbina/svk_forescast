@@ -1,0 +1,20 @@
+# Central konfig för batch-körningar
+esett:
+  areas: [SE1, SE2, SE3, SE4]
+  start: "2023-01-01T00:00:00Z"
+  end:   "2025-10-20T00:00:00Z"   #  datum ska ändras vid behov
+  resolution: "PT60M"
+  outdir: "data/raw/esett"
+
+smhi:
+  features: [temp_c]              # lägg till wind_ms, precip_mm vid behov
+  stations:
+    SE1: [159880, 168940, 162860]
+    SE2: [142940, 140480, 135300]
+    SE3: [98230, 97530, 98410]
+    SE4: [52350, 62410, 53430]
+  outdir: "data/raw/smhi"
+
+calendar:
+  tz_local: "Europe/Stockholm"
+  out: "data/raw/calendar/calendar.parquet"
