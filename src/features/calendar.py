@@ -23,7 +23,7 @@ def build_calendar(start_utc: str, end_utc: str, tz_local: str = "Europe/Stockho
         raise ValueError("end_utc måste vara strikt större än start_utc")
 
     # Timindex i UTC, vänster-inklusive intervall
-    idx = pd.date_range(start, end, freq="1H", inclusive="left", tz="UTC")
+    idx = pd.date_range(start, end, freq="1h", inclusive="left", tz="UTC")
     if len(idx) == 0:
         # Returnera tom df med rätt schema
         return pd.DataFrame(
@@ -50,7 +50,8 @@ def build_calendar(start_utc: str, end_utc: str, tz_local: str = "Europe/Stockho
     df["is_weekend"] = df["dow"].isin([5, 6]).astype("bool")  # lör/sön
 
     # Sommartid (DST) – True om offset != 0
-    df["is_dst"] = (local.dt.dst().fillna(pd.Timedelta(0)) != pd.Timedelta(0)).astype("bool")
+    df["is_dst"] = local.apply(lambda t: (t.dst() or pd.Timedelta(0)) != pd.Timedelta(0)).astype("bool")
+
 
     # Praktisk dagskolumn (lokal kalenderdag)
     df["date"] = local.dt.date.astype("string")

@@ -45,6 +45,12 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Data och exporter
+data/
+exports/
+tmp/
+logs/
+
 # Paket-hanterare (valfritt)
 .poetry/
 poetry.lock
