@@ -1,0 +1,51 @@
+# Virtuella miljöer
+.venv/
+venv/
+env/
+
+# Python cache/bygg filer
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+
+# Test & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Typkontroll/linters
+.mypy_cache/
+.pytype/
+.pyright/
+ruff_cache/
+
+# Notebook-relaterat 
+.ipynb_checkpoints/
+.profile_default/
+.ipython/
+
+# Verktyg/projektfiler
+*.log
+.env
+.env.*
+.venv.bak/
+.DS_Store
+Thumbs.db
+
+# Redaktörer/IDE 
+.vscode/
+.idea/
+
+# Paket-hanterare (valfritt)
+.poetry/
+poetry.lock
+Pipfile.lock
