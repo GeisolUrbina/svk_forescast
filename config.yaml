@@ -2,12 +2,14 @@
 esett:
   areas: [SE1, SE2, SE3, SE4]
   start: "2023-01-01T00:00:00Z"
-  end:   "2025-10-20T00:00:00Z"   #  datum ska ändras vid behov
+  end:   "2025-10-20T00:00:00Z"
   resolution: "PT60M"
   outdir: "data/raw/esett"
+  unit: "MWh"   
+  abs: true     
 
 smhi:
-  features: [temp_c]              # lägg till wind_ms, precip_mm vid behov
+  features: [temp_c]   # lägg till wind_ms, precip_mm vid behov
   stations:
     SE1: [159880, 168940, 162860]
     SE2: [142940, 140480, 135300]
