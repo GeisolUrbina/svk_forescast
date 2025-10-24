@@ -62,9 +62,9 @@ def main():
             print(f"[WARN] {p}: " + " | ".join(issues))
 
     if bad == 0:
-        print("✅ All processed hourly files look good (including partial final month).")
+        print("All processed hourly files look good (including partial final month).")
     else:
-        print(f"⚠️  {bad} file(s) with issues.")
+        print(f"  {bad} file(s) with issues.")
 
 if __name__ == "__main__":
     main()

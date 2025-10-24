@@ -64,7 +64,7 @@ def main():
     df["is_na_any"] = df.isna().any(axis=1)
 
     df.to_parquet(OUT, index=False)
-    print(f"✅ Saved training frame: {OUT}  rows={len(df)}  cols={len(df.columns)}")
+    print(f"Saved training frame: {OUT}  rows={len(df)}  cols={len(df.columns)}")
     print("Sample:")
     print(df.head())
 
