@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from pathlib import Path
 from typing import Iterable, Tuple
 
@@ -42,13 +43,88 @@ def normalize_unit(df: pd.DataFrame, target_unit: str = "MWh") -> pd.DataFrame:
     return df
 
 
+# ---------- helpers för completeness + tim-aggregering ----------
+
+def _infer_step_minutes(df: pd.DataFrame) -> int:
+    """Gissa minsta tidssteg i minuter (t.ex. 15 eller 60)."""
+    if df.empty or "time_utc" not in df:
+        return 60
+    d = df["time_utc"].sort_values().diff().dropna()
+    if d.empty:
+        return 60
+    step = d.min()
+    return int(step / pd.Timedelta(minutes=1))
+
+
+def _expected_rows(span_start: pd.Timestamp, span_end: pd.Timestamp, step_min: int) -> int:
+    """Beräkna förväntat antal punkter i [start, end) givet steg i minuter."""
+    total_minutes = int((span_end - span_start) / pd.Timedelta(minutes=1))
+    step_min = max(1, int(step_min))
+    return total_minutes // step_min
+
+
+def _log_completeness(df: pd.DataFrame, span_start: pd.Timestamp, span_end: pd.Timestamp, label: str):
+    """Logga enkel completeness-status för en månad/area."""
+    if df.empty:
+        logging.info("[eSett] COMPLETENESS %s: 0/0 (empty)", label)
+        return
+    step = _infer_step_minutes(df)
+    exp = _expected_rows(span_start, span_end, step)
+    got = len(df)
+    tol = 4 if step <= 15 else 1  # liten tolerans
+    status = "ok" if got >= exp - tol else "incomplete"
+    logging.info("[eSett] COMPLETENESS %s: %d / %d rows (step=%d min) -> %s", label, got, exp, step, status)
+
+
+def _write_hourly_processed(df: pd.DataFrame, out_base: str) -> list[tuple[str, int]]:
+    """
+    Skriv tim-aggregerad version av df till processed-katalog med samma partitionering.
+    15-min → tim-SUM. Om redan 60-min → resample('1H').sum() (ofarligt, 1 värde/timme).
+    """
+    if df.empty:
+        return []
+    df = df.copy()
+    df["time_utc"] = pd.to_datetime(df["time_utc"], utc=True)
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    df = df.dropna(subset=["time_utc", "value"])
+
+    written: list[tuple[str, int]] = []
+    for area, g in df.groupby("area", dropna=False, observed=False):
+        g = g.sort_values("time_utc").set_index("time_utc")
+        hourly = g["value"].resample("1h").sum(min_count=1).to_frame("value").reset_index()
+        hourly["area"] = area
+        hourly["unit"] = pd.Series(["MWh"] * len(hourly), dtype="category")
+        hourly["resolution"] = pd.Series(["PT60M"] * len(hourly), dtype="category")
+
+        # partitionera på year/month
+        hourly["year"] = hourly["time_utc"].dt.year
+        hourly["month"] = hourly["time_utc"].dt.month
+        for (y, m), part in hourly.groupby(["year", "month"], dropna=False):
+            dir_ = Path(out_base) / f"area={area}" / f"year={y:04d}" / f"month={m:02d}"
+            tmp = dir_ / "part.tmp.parquet"
+            dst = dir_ / "part.parquet"
+            dir_.mkdir(parents=True, exist_ok=True)
+            part = part.drop(columns=["year", "month"])
+            part.to_parquet(tmp, index=False)
+            os.replace(tmp, dst)
+            written.append((str(dst), len(part)))
+    return written
+
+
+def processed_partition_path(base_dir: str, area: str, year: int, month: int) -> Path:
+    return Path(base_dir) / f"area={area}" / f"year={year:04d}" / f"month={month:02d}" / "part.parquet"
+
+
+def processed_exists(base_dir: str, area: str, year: int, month: int) -> bool:
+    return processed_partition_path(base_dir, area, year, month).exists()
+
+
 # ---------- Hjälpare ----------
 
 def month_spans(start_iso: str, end_iso: str) -> Iterable[Tuple[str, str, int, int]]:
     """Generera [start,end) per månad i UTC."""
     idx = pd.date_range(start_iso, end_iso, freq="MS", tz="UTC")
     if len(idx) == 0:
-        # Om start och end ligger inom samma månad utan MS-gräns, hantera som en enda spann
         s = pd.Timestamp(start_iso, tz="UTC")
         e = pd.Timestamp(end_iso, tz="UTC")
         yield s.strftime("%Y-%m-%dT%H:%M:%SZ"), e.strftime("%Y-%m-%dT%H:%M:%SZ"), s.year, s.month
@@ -76,18 +152,48 @@ def run_esett(cfg: dict):
     areas = cfg["areas"]
     start, end = cfg["start"], cfg["end"]
     res = cfg.get("resolution", "PT60M")
-    outdir = cfg["outdir"]
+    outdir = cfg["outdir"]  # RAW
+    processed_outdir = cfg.get("processed_outdir", "data/processed/esett")
     target_unit = cfg.get("unit", "MWh")
     use_abs = bool(cfg.get("abs", False))
+    reprocess = bool(cfg.get("reprocess", False)) 
 
     Path(outdir).mkdir(parents=True, exist_ok=True)
+    Path(processed_outdir).mkdir(parents=True, exist_ok=True)
 
     for a in areas:
         for s, e, y, m in month_spans(start, end):
-            if partition_exists(outdir, a, y, m):
-                logging.info("[eSett] SKIP %s %04d-%02d (partition finns)", a, y, m)
+            raw_part = Path(outdir) / f"area={a}" / f"year={y:04d}" / f"month={m:02d}" / "part.parquet"
+            proc_part = processed_partition_path(processed_outdir, a, y, m)
+
+            # --- Om RAW finns: hoppa hämtning men bygg processed vid behov ---
+            if raw_part.exists():
+                logging.info("[eSett] SKIP %s %04d-%02d (raw finns)", a, y, m)
+
+                # Bygg processed om saknas eller om reprocess=True
+                if reprocess or not proc_part.exists():
+                    try:
+                        df_raw = pd.read_parquet(raw_part)
+                        if df_raw.empty:
+                            continue
+                        if use_abs:
+                            df_raw["value"] = pd.to_numeric(df_raw["value"], errors="coerce").abs()
+                        df_raw = normalize_unit(df_raw, target_unit=target_unit)
+
+                        # Completeness rapport (för skojs skull även på RAW)
+                        span_start = pd.Timestamp(s, tz="UTC")
+                        span_end = pd.Timestamp(e, tz="UTC")
+                        _log_completeness(df_raw, span_start, span_end, label=f"{a} {s[:7]}")
+
+                        w = _write_hourly_processed(df_raw, processed_outdir)
+                        if w:
+                            logging.info("[eSett]  Processed hourly: %s %04d-%02d -> %s",
+                                         a, y, m, proc_part)
+                    except Exception as ex:
+                        logging.exception("[eSett] FEL vid processed-bygg %s %04d-%02d: %s", a, y, m, ex)
                 continue
 
+            # --- Vanlig väg: hämta från API eftersom RAW saknas ---
             logging.info("[eSett]  %s  %s → %s", a, s, e)
             try:
                 df = fetch_esett_consumption(s, e, area=a, resolution=res)
@@ -101,15 +207,26 @@ def run_esett(cfg: dict):
 
             # Normalisering: ev. absolutvärde + enhet
             if use_abs:
-                df["value"] = df["value"].abs()
+                df["value"] = pd.to_numeric(df["value"], errors="coerce").abs()
                 logging.info("[eSett]  abs(value) tillämpad")
 
             df = normalize_unit(df, target_unit=target_unit)
 
             logging.debug("[eSett] DQC %s: %s", a, dqc_summary(df).get(a, {}))
             files = save_partitioned(df, outdir)
-            logging.info("[eSett]  Skrivet: %d rader i %d filer",
-                         sum(n for _, n in files), len(files))
+            tot_raw = sum(n for _, n in files)
+            logging.info("[eSett]  Skrivet: %d rader i %d filer", tot_raw, len(files))
+
+            # Completeness-rapport för månaden
+            span_start = pd.Timestamp(s, tz="UTC")
+            span_end = pd.Timestamp(e, tz="UTC")
+            _log_completeness(df, span_start, span_end, label=f"{a} {s[:7]}")
+
+            # Tim-aggregerad "processed"-skrivning
+            w = _write_hourly_processed(df, processed_outdir)
+            if w:
+                logging.info("[eSett]  Processed hourly: %d rader till %s",
+                             sum(n for _, n in w), processed_outdir)
 
 
 def run_smhi(cfg: dict, esett_cfg: dict):
