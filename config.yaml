@@ -2,18 +2,17 @@
 esett:
   areas: [SE1, SE2, SE3, SE4]
   start: "2023-01-01T00:00:00Z"
-  end:   "2025-10-20T00:00:00Z"
+  end:   "2025-07-01T00:00:00Z"
   resolution: "PT60M"
   outdir: "data/raw/esett"
   unit: "MWh"     
   abs: true       # ta absolutvärde på konsumtion
   processed_outdir: "data/processed/esett"
-  reprocess: false   # sätt true för att tvinga ombyggnad av processed även om den redan finns
+  reprocess: true   # sätt true för att tvinga ombyggnad av processed även om den redan finns
 
 
 smhi:
-  # Kör flera features
-  features: [temp_c, wind_ms, precip_mm]
+  features: [t, ws, rr]   #temp_c, wind_ms, precip_mm
   stations:
     SE1: [159880, 168940, 162860]
     SE2: [142940, 140480, 135300]

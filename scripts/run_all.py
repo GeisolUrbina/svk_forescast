@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from glob import glob
 from pathlib import Path
 from typing import Iterable, Tuple
 
@@ -33,11 +34,9 @@ def normalize_unit(df: pd.DataFrame, target_unit: str = "MWh") -> pd.DataFrame:
             df.loc[is_kwh, "unit"] = "MWh"
 
     if target == "KWH":
-        # Om man vill ha kWh ut
         df["value"] = df["value"] * 1000.0
         df["unit"] = pd.Series(["kWh"] * len(df), dtype="category")
     else:
-        # Standard: MWh
         df["unit"] = pd.Series(["MWh"] * len(df), dtype="category")
 
     return df
@@ -79,7 +78,7 @@ def _log_completeness(df: pd.DataFrame, span_start: pd.Timestamp, span_end: pd.T
 def _write_hourly_processed(df: pd.DataFrame, out_base: str) -> list[tuple[str, int]]:
     """
     Skriv tim-aggregerad version av df till processed-katalog med samma partitionering.
-    15-min → tim-SUM. Om redan 60-min → resample('1H').sum() (ofarligt, 1 värde/timme).
+    15-min → tim-SUM. Om redan 60-min → resample('1h').sum() (ofarligt, 1 värde/timme).
     """
     if df.empty:
         return []
@@ -156,7 +155,7 @@ def run_esett(cfg: dict):
     processed_outdir = cfg.get("processed_outdir", "data/processed/esett")
     target_unit = cfg.get("unit", "MWh")
     use_abs = bool(cfg.get("abs", False))
-    reprocess = bool(cfg.get("reprocess", False)) 
+    reprocess = bool(cfg.get("reprocess", False))
 
     Path(outdir).mkdir(parents=True, exist_ok=True)
     Path(processed_outdir).mkdir(parents=True, exist_ok=True)
@@ -180,7 +179,7 @@ def run_esett(cfg: dict):
                             df_raw["value"] = pd.to_numeric(df_raw["value"], errors="coerce").abs()
                         df_raw = normalize_unit(df_raw, target_unit=target_unit)
 
-                        # Completeness rapport (för skojs skull även på RAW)
+                        # Completeness rapport
                         span_start = pd.Timestamp(s, tz="UTC")
                         span_end = pd.Timestamp(e, tz="UTC")
                         _log_completeness(df_raw, span_start, span_end, label=f"{a} {s[:7]}")
@@ -205,7 +204,6 @@ def run_esett(cfg: dict):
                 logging.warning("[eSett] Tomt svar: %s %s→%s (ingen skrivning)", a, s, e)
                 continue
 
-            # Normalisering: ev. absolutvärde + enhet
             if use_abs:
                 df["value"] = pd.to_numeric(df["value"], errors="coerce").abs()
                 logging.info("[eSett]  abs(value) tillämpad")
@@ -238,15 +236,26 @@ def run_smhi(cfg: dict, esett_cfg: dict):
     features = cfg.get("features", ["temp_c"])
     stations = cfg.get("stations", {})
     outdir = cfg.get("outdir", "data/raw/smhi")
+    reprocess = bool(cfg.get("reprocess", False)) or bool(esett_cfg.get("reprocess", False))
     Path(outdir).mkdir(parents=True, exist_ok=True)
+
+    # Alias → standardkolumn (så vi kan hoppa innan vi hämtar)
+    alias_to_std = {
+        "temp_c": "temp_c", "t": "temp_c",
+        "wind_ms": "wind_ms", "ws": "wind_ms",
+        "precip_mm": "precip_mm", "rr": "precip_mm",
+    }
 
     start, end = esett_cfg["start"], esett_cfg["end"]
     client = SMHI()
 
     for feat in features:
-        out = Path(outdir) / f"{feat}_{start[:10]}_{end[:10]}.parquet"
-        if out.exists():
-            logging.info("[SMHI] SKIP %s (fil finns: %s)", feat, out)
+        std_name = alias_to_std.get(feat, feat)
+        expected_path = Path(outdir) / f"{std_name}_{start[:10]}_{end[:10]}.parquet"
+
+        # Skip-logik: om fil med standardnamnet finns och vi inte reprocessar
+        if expected_path.exists() and not reprocess:
+            logging.info("[SMHI] SKIP %s (fil finns: %s)", feat, expected_path)
             continue
 
         logging.info("[SMHI]  %s  %s → %s", feat, start, end)
@@ -259,6 +268,24 @@ def run_smhi(cfg: dict, esett_cfg: dict):
         if df.empty:
             logging.warning("[SMHI] Tomt svar för %s – ingen skrivning", feat)
             continue
+
+        # Hitta kolumnnamnet som faktiskt kom tillbaka
+        smhi_cols = [c for c in df.columns if c not in ("time_utc", "area")]
+        if len(smhi_cols) != 1:
+            logging.error("[SMHI] oväntade kolumner: %s", df.columns.tolist())
+            continue
+        out_col = smhi_cols[0]
+
+        # Spara alltid med standardnamnet (temp_c / wind_ms / precip_mm)
+        if out_col != std_name:
+            df = df.rename(columns={out_col: std_name})
+
+        out = expected_path
+        if reprocess and out.exists():
+            try:
+                out.unlink()
+            except OSError:
+                pass
 
         df.to_parquet(out, index=False)
         logging.info("[SMHI]  Skrivet: %d rader -> %s", len(df), out)
