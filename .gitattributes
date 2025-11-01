@@ -1,0 +1,7 @@
+# Alla textfiler ska använda LF i repo:t
+* text=auto eol=lf
+
+# Behandla Jupyter-notebooks som binära filer 
+.gitattributes text eol=lf
+* text=auto eol=lf
+*.ipynb -text
